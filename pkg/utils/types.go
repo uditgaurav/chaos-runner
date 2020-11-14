@@ -7,11 +7,10 @@ import (
 	clientV1alpha1 "github.com/litmuschaos/chaos-operator/pkg/client/clientset/versioned"
 	volume "github.com/litmuschaos/elves/kubernetes/volume/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	runtime "k8s.io/apimachinery/pkg/runtime"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/record"
 
 	"github.com/litmuschaos/chaos-runner/pkg/utils/k8s"
 	"github.com/litmuschaos/chaos-runner/pkg/utils/litmus"
@@ -47,11 +46,15 @@ type ExperimentDetails struct {
 	SvcAccount         string
 	Annotations        map[string]string
 	NodeSelector       map[string]string
+	Tolerations        []corev1.Toleration
 	SecurityContext    v1alpha1.SecurityContext
 	HostPID            bool
 	// InstanceID is passed as env inside chaosengine
 	// It is separately specified here because this attribute is common for all experiment.
-	InstanceID string
+	InstanceID           string
+	ResourceRequirements v1.ResourceRequirements
+	ImagePullSecrets     []corev1.LocalObjectReference
+	StatusCheckTimeout   int
 }
 
 //VolumeOpts is a strcuture for all volume related operations
@@ -66,10 +69,12 @@ type ClientSets struct {
 	LitmusClient *clientV1alpha1.Clientset
 }
 
-// Recorder is collection of resources needed to record events for chaos-runner
-type Recorder struct {
-	EventRecorder record.EventRecorder
-	EventResource runtime.Object
+// EventAttributes is for collecting all the events-related details
+type EventAttributes struct {
+	Reason  string
+	Message string
+	Type    string
+	Name    string
 }
 
 var (
@@ -86,6 +91,7 @@ const (
 	ExperimentNotFoundErrorReason            string = "ExperimentNotFound"
 	ExperimentJobCreationErrorReason         string = "JobCreationError"
 	ExperimentChaosContainerWatchErrorReason string = "ChaosContainerWatchNotPermitted"
+	ChaosResourceNotFoundReason              string = "ChaosResourceNotFound"
 )
 
 // GenerateClientSetFromKubeConfig will generation both ClientSets (k8s, and Litmus)
@@ -107,8 +113,6 @@ func (clientSets *ClientSets) GenerateClientSetFromKubeConfig() error {
 
 	return nil
 }
-
-// Generate
 
 // getKubeConfig setup the config for access cluster resource
 func getKubeConfig() (*rest.Config, error) {
